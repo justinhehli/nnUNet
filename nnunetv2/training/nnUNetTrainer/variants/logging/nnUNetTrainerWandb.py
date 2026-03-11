@@ -16,7 +16,7 @@ class nnUNetTrainerWandb(nnUNetTrainer):
         WANDB_NNUNET_PROJECT    (Weights & Biases project name)
 
     Command to run:
-        set -a && source ~/repos/ForkSight/Environment/.env && set +a && CUDA_VISIBLE_DEVICES=<DEVICE> nnUNetv2_train <DATASET_id> 2d <FOLD> -tr nnUNetTrainerWandb --npz
+        set -a && source <repo-root>/Environment/.env && set +a && CUDA_VISIBLE_DEVICES=<DEVICE> nnUNetv2_train <DATASET_id> 2d <FOLD> -tr nnUNetTrainerWandb --npz
     
     Note: CUDA_VISIBLE_DEVICES=<DEVICE> makes the device with the specified index the only visible one, so nnUNet will see it as cuda:0 and log accordingly 
     """
