@@ -117,7 +117,7 @@ class nnUNetTrainerClDiceLoss(nnUNetTrainerWandb):
         NNUNET_CE_WEIGHT       weight for BCE/CE   (default 1.0)
         NNUNET_DICE_WEIGHT     weight for Dice      (default 1.0)
         NNUNET_CLDICE_WEIGHT   weight for clDice    (default 1.0)
-        NNUNET_CLDICE_ITER     skeletonise iters    (default 10)
+        NNUNET_CLDICE_ITER     skeletonise iters    (default 15)
     """
 
     def __init__(self, plans, configuration, fold, dataset_json,
@@ -127,22 +127,22 @@ class nnUNetTrainerClDiceLoss(nnUNetTrainerWandb):
         self.w_ce = float(os.environ.get("NNUNET_CE_WEIGHT", 1.0))
         self.w_dice = float(os.environ.get("NNUNET_DICE_WEIGHT", 1.0))
         self.w_cldice = float(os.environ.get("NNUNET_CLDICE_WEIGHT", 1.0))
-        self.cldice_iter = int(os.environ.get("NNUNET_CLDICE_ITER", 10))
+        self.cldice_iter = int(os.environ.get("NNUNET_CLDICE_ITER", 15))
+
+        self._update_wandb_config()
 
         self.print_to_log_file(
             f"Loss weights: CE: {self.w_ce}, Dice: {self.w_dice}, clDice: {self.w_cldice} "
             f"(skeletonize_iter={self.cldice_iter})"
         )
 
-    def _wandb_config(self, configuration: str, fold: int) -> dict:
-        cfg = super()._wandb_config(configuration, fold)
-        cfg.update({
+    def _update_wandb_config(self):
+        self.wandb_run.config.update({
             "CE_weight": self.w_ce,
             "Dice_weight": self.w_dice,
             "clDice_weight": self.w_cldice,
             "clDice_iter": self.cldice_iter,
         })
-        return cfg
 
     def _get_loss_module(self):
         return self.loss.loss if isinstance(self.loss, DeepSupervisionWrapper) else self.loss
