@@ -50,8 +50,10 @@ class DC_BCE_and_ClDice_loss(nn.Module):
             target_fg = target[:, :1].float()
             logits_fg = net_output[:, :1]
             cl = self.cldice(logits_fg, target_fg)
+            self._last_cl = float(cl.detach())
         else:
             cl = 0
+            self._last_cl = 0.0
 
         return base + self.weight_cldice * cl
 
@@ -95,8 +97,10 @@ class DC_CE_and_ClDice_loss(nn.Module):
             target_fg = (target > 0).float()
             logits_fg = net_output[:, 1:2]  # foreground logit (class index 1)
             cl = self.cldice(logits_fg, target_fg)
+            self._last_cl = float(cl.detach())
         else:
             cl = 0
+            self._last_cl = 0.0
 
         return base + self.weight_cldice * cl
 
@@ -139,6 +143,20 @@ class nnUNetTrainerClDiceLoss(nnUNetTrainerWandb):
             "clDice_iter": self.cldice_iter,
         })
         return cfg
+
+    def _get_loss_module(self):
+        return self.loss.loss if isinstance(self.loss, DeepSupervisionWrapper) else self.loss
+
+    def train_step(self, batch: dict) -> dict:
+        ret = super().train_step(batch)
+        ret['cldice_loss'] = self._get_loss_module()._last_cl
+        return ret
+
+    def on_train_epoch_end(self, train_outputs: list) -> None:
+        super().on_train_epoch_end(train_outputs)
+        mean_cl = float(np.mean([o['cldice_loss'] for o in train_outputs]))
+        self.print_to_log_file(
+            f'cldice_loss (unweighted): {np.round(mean_cl, decimals=4)}')
 
     def _build_loss(self):
         if self.label_manager.has_regions:
