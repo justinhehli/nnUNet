@@ -17,19 +17,20 @@ class nnUNetTrainerWandb(nnUNetTrainer):
 
     Command to run:
         set -a && source <repo-root>/Environment/.env && set +a && CUDA_VISIBLE_DEVICES=<DEVICE> nnUNetv2_train <DATASET_id> 2d <FOLD> -tr nnUNetTrainerWandb --npz
-    
+
     Note: CUDA_VISIBLE_DEVICES=<DEVICE> makes the device with the specified index the only visible one, so nnUNet will see it as cuda:0 and log accordingly 
     """
 
     def __init__(self, plans, configuration, fold, dataset_json,
-                 device=torch.device("cuda")):
+                 device=torch.device("cuda"), override_wandb_project: str | None = None):
         super().__init__(plans, configuration, fold, dataset_json, device)
 
         self.wandb_run = None
         if self.local_rank == 0:
             wandb_api_key = os.environ.get("WANDB_API_KEY", None)
             wandb_entity = os.environ.get("WANDB_ENTITY", None)
-            wandb_project = os.environ.get("WANDB_NNUNET_PROJECT", None)
+            wandb_project = override_wandb_project if override_wandb_project is not None else os.environ.get(
+                "WANDB_NNUNET_PROJECT", None)
             if wandb_api_key is None or wandb_entity is None or wandb_project is None:
                 raise RuntimeError(
                     "WANDB_API_KEY, WANDB_ENTITY, and WANDB_NNUNET_PROJECT env vars must be set for W&B logging.")
