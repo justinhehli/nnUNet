@@ -78,3 +78,77 @@ class WeightedAdaptiveWingLoss(nn.Module):
         weight_map = self.weight * loss_mask + 1.0
 
         return (per_pixel * weight_map).mean()
+
+
+class ReweightedAdaptiveWingLoss(nn.Module):
+    """
+    AdaptiveWingLoss with two independent, optional per-pixel reweighting schemes meant to address
+    confident false negatives (raw output near 0 at true landmark pixels), on top of the paper's
+    Weighted Loss Map (WeightedAdaptiveWingLoss) if use_weight_map is set:
+
+      - focal-style hard-positive upweighting (gamma is not None): at GT-positive pixels, the
+        per-pixel loss is multiplied by (1 - pred)^gamma, pred = sigmoid(net_output) detached before
+        computing the modulating factor (so the network can't reduce its own loss weight just by
+        pushing pred down without shrinking delta). Standard RetinaNet-style focal reweighting,
+        applied per-pixel instead of per-box.
+
+      - soft-sampling background down-weighting (max_downweight is not None): at GT-background
+        pixels, the per-pixel loss is scaled by (1 - snapshot_confidence), where snapshot_confidence
+        = sigmoid(snapshot_output) comes from a frozen, periodically-refreshed snapshot of the model
+        (see nnUNetTrainerHeatmapAdaptiveWingSoftSampling - refreshed every N epochs rather than every
+        step, to avoid a feedback loop where the model's own current, possibly-wrong confidence erases
+        its own training signal). Down-weighting is floored at (1 - max_downweight) so a background
+        pixel can never be fully zeroed out of the loss. snapshot_output must be passed to forward()
+        whenever max_downweight is set - there is no silent no-reweighting fallback, since that would
+        just look like soft-sampling doing nothing.
+
+    Both schemes can be enabled together (their weights multiply).
+    """
+
+    def __init__(self, omega: float = 14.0, theta: float = 0.5, epsilon: float = 1.0,
+                 alpha: float = 2.1, nonlinearity=torch.sigmoid,
+                 gamma: float = None, max_downweight: float = None,
+                 use_weight_map: bool = True, weight: float = 10.0, dilation_threshold: float = 0.2):
+        super().__init__()
+        assert gamma is None or gamma >= 0, "gamma must be >= 0"
+        assert max_downweight is None or 0.0 <= max_downweight <= 1.0, \
+            "max_downweight must be in [0, 1]"
+        self.awing = AdaptiveWingLoss(omega=omega, theta=theta, epsilon=epsilon, alpha=alpha,
+                                      nonlinearity=nonlinearity)
+        self.gamma = gamma
+        self.max_downweight = max_downweight
+        self.use_weight_map = use_weight_map
+        self.weight = weight
+        self.dilation_threshold = dilation_threshold
+
+    def forward(self, net_output: torch.Tensor, target: torch.Tensor,
+                snapshot_output: torch.Tensor = None) -> torch.Tensor:
+        nonlin = self.awing.nonlinearity
+        y_hat = nonlin(net_output) if nonlin is not None else net_output
+        per_pixel = self.awing._per_pixel_loss(target, y_hat)
+
+        positive_mask = (target > 0).to(per_pixel.dtype)
+        weight_map = torch.ones_like(per_pixel)
+
+        if self.gamma is not None:
+            modulating_factor = (1.0 - y_hat.detach()) ** self.gamma
+            weight_map = weight_map * \
+                (positive_mask * modulating_factor + (1.0 - positive_mask))
+
+        if self.max_downweight is not None:
+            assert snapshot_output is not None, \
+                "max_downweight is set but no snapshot_output was passed to forward() - wire the " \
+                "frozen snapshot's prediction through (see nnUNetTrainerHeatmapAdaptiveWingSoftSampling)"
+            snapshot_confidence = nonlin(
+                snapshot_output).detach() if nonlin is not None else snapshot_output.detach()
+            downweight = snapshot_confidence.clamp(max=self.max_downweight)
+            background_mask = 1.0 - positive_mask
+            weight_map = weight_map * \
+                (background_mask * (1.0 - downweight) + positive_mask)
+
+        if self.use_weight_map:
+            dilated = F.max_pool2d(target, kernel_size=3, stride=1, padding=1)
+            loss_mask = (dilated >= self.dilation_threshold).to(per_pixel.dtype)
+            weight_map = weight_map * (self.weight * loss_mask + 1.0)
+
+        return (per_pixel * weight_map).mean()
