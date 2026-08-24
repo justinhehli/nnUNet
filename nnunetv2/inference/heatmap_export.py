@@ -65,7 +65,7 @@ def revert_heatmap_to_original_geometry(predicted_logits: Union[torch.Tensor, np
 def extract_points_from_heatmap(probabilities: np.ndarray, threshold: float = 0.5, min_distance: int = 3,
                                 include_combined_channel: bool = False) -> Dict[int, List[tuple]]:
     """
-    probabilities: (C, H, W) array in [0, 1]. Channel 0 is the "combined" heatmap, channels 1..N are
+    probabilities: (C, 1, H, W) array in [0, 1]. Channel 0 is the "combined" heatmap, channels 1..N are
     per-class heatmaps (see ConvertSegToMultiChannelHeatmap). For each per-class channel, finds local
     maxima above `threshold` at least `min_distance` apart, so any number (zero, one, or many) of
     same-class landmarks can be recovered 
@@ -74,10 +74,11 @@ def extract_points_from_heatmap(probabilities: np.ndarray, threshold: float = 0.
     start_channel = 0 if include_combined_channel else 1
     points_by_channel: Dict[int, List[tuple]] = {}
     for c in range(start_channel, probabilities.shape[0]):
+        channel_map = np.squeeze(probabilities[c])
         coords = peak_local_max(
-            probabilities[c], min_distance=min_distance, threshold_abs=threshold)
+            channel_map, min_distance=min_distance, threshold_abs=threshold)
         points_by_channel[c] = [(int(x), int(y), float(
-            probabilities[c, y, x])) for y, x in coords]
+            channel_map[y, x])) for y, x in coords]
     return points_by_channel
 
 
