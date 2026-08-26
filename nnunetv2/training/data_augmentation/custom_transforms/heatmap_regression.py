@@ -79,3 +79,41 @@ class ConvertSegToMultiChannelHeatmap(SegOnlyTransform):
             heatmap[0] = heatmap[1:].max(axis=0)
 
         return torch.from_numpy(heatmap)
+
+
+class ConvertSegToSingleChannelHeatmap(SegOnlyTransform):
+    """
+    Single-label counterpart to ConvertSegToMultiChannelHeatmap, for datasets with exactly one
+    foreground label where all landmark types have been merged into 
+    (see JunctionDetection/PreProcessing/create_nnunet_dataset_variants.py). 
+    Converts an integer blob-label segmentation (1, H, W), values 0/1, into a single-channel (1, H, W) 
+    float32 Gaussian-heatmap target.
+
+    Meant to be appended as the last step of nnUNetTrainer.get_training_transforms /
+    get_validation_transforms, after spatial augmentation has already run on the still-discrete blob
+    map.
+    """
+
+    def __init__(self, sigma: float = 3.0):
+        super().__init__()
+        self.sigma = sigma
+        self._kernel = _gaussian_kernel_2d(sigma)
+
+    def _apply_to_segmentation(self, segmentation: torch.Tensor, **params) -> torch.Tensor:
+        assert segmentation.ndim == 3 and segmentation.shape[0] == 1, \
+            f"ConvertSegToSingleChannelHeatmap expects a (1, H, W) segmentation, got {tuple(segmentation.shape)}"
+        seg = segmentation[0].numpy()
+        h, w = seg.shape
+
+        heatmap = np.zeros((1, h, w), dtype=np.float32)
+        mask = seg > 0
+        if mask.any():
+            labeled, num_components = connected_components(mask)
+            if num_components > 0:
+                centers = center_of_mass(
+                    mask, labeled, range(1, num_components + 1))
+                for cy, cx in centers:
+                    _paste_max(heatmap[0], self._kernel,
+                               int(round(cy)), int(round(cx)))
+
+        return torch.from_numpy(heatmap)

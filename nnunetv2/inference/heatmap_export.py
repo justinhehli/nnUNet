@@ -122,3 +122,57 @@ def export_heatmap_prediction_from_logits(predicted_array_or_file: Union[np.ndar
         for channel, points in points_by_channel.items()
     }
     save_json(points_by_label, output_file_truncated + '.json')
+
+
+def export_single_channel_heatmap_prediction_from_logits(predicted_array_or_file: Union[np.ndarray, torch.Tensor],
+                                                         properties_dict: dict,
+                                                         configuration_manager: ConfigurationManager,
+                                                         plans_manager: PlansManager,
+                                                         dataset_json_dict_or_file: Union[dict, str],
+                                                         output_file_truncated: str,
+                                                         save_probabilities: bool = False,
+                                                         threshold: float = 0.5,
+                                                         min_distance: int = 3,
+                                                         num_threads_torch: int = default_num_processes) -> None:
+    """
+    Single-channel counterpart to export_heatmap_prediction_from_logits, for models trained with
+    nnUNetTrainerHeatmapAdaptiveWingFocalSoftSamplingSingleLabel on a dataset with exactly one
+    foreground label (see    JunctionDetection/PreProcessing/create_nnunet_dataset_variants.py) -
+    the predicted array has just 1 channel (the one landmark class)
+
+    Same call signature (except for additional optional args) as
+    nnunetv2.inference.export_prediction.export_prediction_from_logits, and writes the same
+    `output_file_truncated + '.json'` / (optional) `.npz` outputs as
+    export_heatmap_prediction_from_logits.
+    """
+    if isinstance(dataset_json_dict_or_file, str):
+        dataset_json_dict_or_file = load_json(dataset_json_dict_or_file)
+
+    probabilities = revert_heatmap_to_original_geometry(
+        predicted_array_or_file, plans_manager, configuration_manager, properties_dict,
+        num_threads_torch=num_threads_torch)
+    del predicted_array_or_file
+
+    assert probabilities.shape[0] == 1, \
+        f"export_single_channel_heatmap_prediction_from_logits expects a single-channel heatmap, " \
+        f"got {probabilities.shape[0]} channels"
+
+    if save_probabilities:
+        np.savez_compressed(output_file_truncated + '.npz',
+                            probabilities=probabilities.astype(np.float16))
+
+    points_by_channel = extract_points_from_heatmap(
+        probabilities, threshold=threshold, min_distance=min_distance, include_combined_channel=True)
+
+    foreground_labels = [name for name, label_id in dataset_json_dict_or_file['labels'].items()
+                         if name != 'background' and name != 'ignore']
+    assert len(foreground_labels) == 1, \
+        f"export_single_channel_heatmap_prediction_from_logits expects exactly one foreground label " \
+        f"in dataset.json, got {foreground_labels}"
+    label_name = foreground_labels[0]
+
+    points_by_label = {
+        label_name: [{'x': x, 'y': y, 'score': score}
+                     for x, y, score in points_by_channel[0]]
+    }
+    save_json(points_by_label, output_file_truncated + '.json')
