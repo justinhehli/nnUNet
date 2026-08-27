@@ -36,6 +36,7 @@ class nnUNetTrainerHeatmapMSE(nnUNetTrainerWandb):
         NNUNET_HEATMAP_SIGMA          gaussian sigma in pixels for the heatmap targets (default 3.0)
         NNUNET_HEATMAP_THRESHOLD      confidence threshold for peak extraction at validation/inference (default 0.5)
         NNUNET_HEATMAP_MIN_DISTANCE   minimum pixel distance between two detected peaks (default 3)
+        NNUNET_NUM_EPOCHS             total training epochs (default nnUNetTrainer's 1000)
     """
 
     def __init__(self, plans: dict, configuration: str, fold: int, dataset_json: dict,
@@ -49,10 +50,13 @@ class nnUNetTrainerHeatmapMSE(nnUNetTrainerWandb):
             os.environ.get("NNUNET_HEATMAP_THRESHOLD", 0.5))
         self.heatmap_min_distance = int(
             os.environ.get("NNUNET_HEATMAP_MIN_DISTANCE", 3))
+        self.num_epochs = int(
+            os.environ.get("NNUNET_NUM_EPOCHS", self.num_epochs))
 
         self.print_to_log_file(
             f"nnUNetTrainerHeatmapMSE: sigma={self.heatmap_sigma}, threshold={self.heatmap_threshold}, "
-            f"min_distance={self.heatmap_min_distance}, deep_supervision={self.enable_deep_supervision}"
+            f"min_distance={self.heatmap_min_distance}, deep_supervision={self.enable_deep_supervision}, "
+            f"num_epochs={self.num_epochs}"
         )
 
     def _build_loss(self):
